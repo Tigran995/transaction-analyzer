@@ -1,62 +1,63 @@
+from datetime import datetime
 from typing import Dict, List
 import pandas as pd
-from .utils import load_transactions, get_greeting
+from .utils import load_transactions, get_greeting, get_currency_rates, get_stock_prices
+import logging
+import json
+
+logger = logging.getLogger(__name__)
 
 
 def home_page(date_time: str) -> Dict:
-    """
-    Генерирует JSON для главной страницы.
+    """Generate home page JSON response."""
+    try:
+        # Parse input date
+        current_date = datetime.strptime(date_time, "%Y-%m-%d %H:%M:%S")
 
-    Args:
-        date_time: Дата в формате 'YYYY-MM-DD HH:MM:SS'.
+        # Load and filter transactions
+        df = load_transactions("data/operations.xls")
+        monthly_transactions = df[
+            (df['Дата операции'].dt.month == current_date.month) &
+            (df['Дата операции'].dt.year == current_date.year)
+            ]
 
-    Returns:
-        {
-            "greeting": str,
-            "cards": List[Dict],
-            "top_transactions": List[Dict],
-            "currency_rates": List[Dict],
-            "stock_prices": List[Dict]
+        # Process cards data
+        cards_data = monthly_transactions.groupby('Номер карты').agg({
+            'Сумма операции': 'sum',
+            'Кешбэк': 'sum'
+        }).reset_index()
+
+        cards = [{
+            "last_digits": str(card)[-4:],
+            "total_spent": round(total, 2),
+            "cashback": round(cashback, 2)
+        } for card, total, cashback in zip(
+            cards_data['Номер карты'],
+            cards_data['Сумма операции'],
+            cards_data['Кешбэк']
+        )]
+
+        # Get top transactions
+        top_transactions = monthly_transactions.nlargest(5, 'Сумма операции')
+        top_transactions_list = [{
+            "date": row['Дата операции'].strftime('%d.%m.%Y'),
+            "amount": round(row['Сумма операции'], 2),
+            "category": row['Категория'],
+            "description": row['Описание']
+        } for _, row in top_transactions.iterrows()]
+
+        # Get external data
+        currency_rates = get_currency_rates(["USD", "EUR"])
+        stock_prices = get_stock_prices(["AAPL", "GOOGL"])
+
+        return {
+            "greeting": get_greeting(),
+            "cards": cards,
+            "top_transactions": top_transactions_list,
+            "currency_rates": currency_rates,
+            "stock_prices": stock_prices
         }
-    """
-    df = load_transactions("data/operations.xls")
-    current_date = pd.to_datetime(date_time.split()[0])
 
-    # Фильтр транзакций за текущий месяц
-    monthly_transactions = df[
-        (df['Дата операции'].dt.month == current_date.month) &
-        (df['Дата операции'].dt.year == current_date.year)
-        ]
-
-    # Анализ по картам
-    cards = monthly_transactions.groupby('Номер карты').agg({
-        'Сумма операции': 'sum',
-        'Кешбэк': 'sum'
-    }).reset_index()
-
-    cards_list = [{
-        "last_digits": str(card)[-4:],
-        "total_spent": round(total, 2),
-        "cashback": round(cashback, 2)
-    } for card, total, cashback in zip(
-        cards['Номер карты'],
-        cards['Сумма операции'],
-        cards['Кешбэк']
-    )]
-
-    # Топ-5 транзакций
-    top_transactions = monthly_transactions.nlargest(5, 'Сумма операции')
-    top_transactions_list = [{
-        "date": row['Дата операции'].strftime('%d.%m.%Y'),
-        "amount": round(row['Сумма операции'], 2),
-        "category": row['Категория'],
-        "description": row['Описание']
-    } for _, row in top_transactions.iterrows()]
-
-    return {
-        "greeting": get_greeting(),
-        "cards": cards_list,
-        "top_transactions": top_transactions_list,
-        "currency_rates": [{"currency": "USD", "rate": 75.5}],  # Заглушка
-        "stock_prices": [{"stock": "AAPL", "price": 150.0}]  # Заглушка
-    }
+    except Exception as e:
+        logger.error(f"Error in home_page: {e}")
+        return json.dumps({"error": str(e)})
