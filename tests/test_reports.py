@@ -1,12 +1,30 @@
+"""Тесты для reports.py."""
+import pytest
+import json
 import pandas as pd
-from src.services import profitable_cashback_categories
+import sys
+import os
 
-def test_cashback_categories():
-    """Проверяет расчет кешбэка по категориям."""
-    test_data = pd.DataFrame([
-        {"Дата операции": "2023-01-01", "Категория": "Еда", "Кешбэк": 10},
-        {"Дата операции": "2023-01-02", "Категория": "Транспорт", "Кешбэк": 5}
-    ])
-    result = profitable_cashback_categories(test_data, 2023, 1)
-    assert "Еда" in result
-    assert result["Еда"] == 10
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from src.reports import spending_by_category
+
+
+@pytest.fixture
+def sample_dataframe():
+    """Тестовый DataFrame."""
+    return pd.DataFrame({
+        'Дата операции': pd.date_range('2023-08-01', periods=10, freq='D'),
+        'Категория': ['Еда'] * 5 + ['Транспорт'] * 5,
+        'Сумма платежа': [100.0] * 10
+    })
+
+
+def test_spending_by_category_returns_json(sample_dataframe):
+    """Тест возврата JSON."""
+    result = spending_by_category(sample_dataframe, "Еда", "2023-10-01")
+    data = json.loads(result)
+
+    assert "category" in data
+    assert "total_spent" in data
+    assert data["category"] == "Еда"

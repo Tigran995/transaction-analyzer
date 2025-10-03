@@ -1,63 +1,86 @@
-from datetime import datetime
-from typing import Dict, List
-import pandas as pd
-from .utils import load_transactions, get_greeting, get_currency_rates, get_stock_prices
-import logging
+"""Функции для генерации JSON ответов веб-страниц."""
 import json
+import logging
+import pandas as pd
+from datetime import datetime
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
-def home_page(date_time: str) -> Dict:
-    """Generate home page JSON response."""
+def get_greeting() -> str:
+    """Возвращает приветствие в зависимости от времени суток."""
+    current_hour = datetime.now().hour
+
+    if 5 <= current_hour < 12:
+        return "Доброе утро"
+    elif 12 <= current_hour < 18:
+        return "Добрый день"
+    elif 18 <= current_hour < 23:
+        return "Добрый вечер"
+    else:
+        return "Доброй ночи"
+
+
+def get_currency_rates(currencies: list) -> list:
+    """Возвращает курсы валют (заглушка)."""
+    mock_rates = {"USD": 95.5, "EUR": 102.3, "GBP": 118.7}
+    return [{"currency": curr, "rate": mock_rates.get(curr, 0)} for curr in currencies]
+
+
+def get_stock_prices(stocks: list) -> list:
+    """Возвращает цены акций (заглушка)."""
+    mock_prices = {"AAPL": 185.0, "GOOGL": 138.5, "MSFT": 378.2}
+    return [{"stock": stock, "price": mock_prices.get(stock, 0)} for stock in stocks]
+
+
+def main_page(date_str: str, transactions_df: pd.DataFrame, user_settings: Dict[str, Any]) -> str:
+    """Генерирует JSON для главной страницы."""
     try:
-        # Parse input date
-        current_date = datetime.strptime(date_time, "%Y-%m-%d %H:%M:%S")
+        # Приветствие
+        greeting = get_greeting()
 
-        # Load and filter transactions
-        df = load_transactions("data/operations.xls")
-        monthly_transactions = df[
-            (df['Дата операции'].dt.month == current_date.month) &
-            (df['Дата операции'].dt.year == current_date.year)
-            ]
+        # Фильтрация данных за месяц
+        target_date = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        start_of_month = target_date.replace(day=1, hour=0, minute=0, second=0)
+        mask = (transactions_df['Дата операции'] >= start_of_month) & (transactions_df['Дата операции'] <= target_date)
+        monthly_data = transactions_df[mask]
 
-        # Process cards data
-        cards_data = monthly_transactions.groupby('Номер карты').agg({
-            'Сумма операции': 'sum',
-            'Кешбэк': 'sum'
-        }).reset_index()
+        # Данные по картам
+        cards_data = []
+        if not monthly_data.empty and 'Номер карты' in monthly_data.columns:
+            for card_num, group in monthly_data.groupby('Номер карты'):
+                total_spent = group['Сумма платежа'].sum()
+                cashback = group['Кешбэк'].sum() if 'Кешбэк' in group.columns else 0
+                cards_data.append({
+                    "last_digits": str(card_num)[-4:],
+                    "total_spent": round(total_spent, 2),
+                    "cashback": round(cashback, 2)
+                })
 
-        cards = [{
-            "last_digits": str(card)[-4:],
-            "total_spent": round(total, 2),
-            "cashback": round(cashback, 2)
-        } for card, total, cashback in zip(
-            cards_data['Номер карты'],
-            cards_data['Сумма операции'],
-            cards_data['Кешбэк']
-        )]
+        # Топ-5 транзакций
+        top_transactions = []
+        if not monthly_data.empty:
+            top_5 = monthly_data.nlargest(5, 'Сумма платежа')
+            for _, row in top_5.iterrows():
+                top_transactions.append({
+                    "date": row['Дата операции'].strftime("%d.%m.%Y"),
+                    "amount": round(row['Сумма платежа'], 2),
+                    "category": row.get('Категория', 'Неизвестно'),
+                    "description": row.get('Описание', 'Неизвестно')
+                })
 
-        # Get top transactions
-        top_transactions = monthly_transactions.nlargest(5, 'Сумма операции')
-        top_transactions_list = [{
-            "date": row['Дата операции'].strftime('%d.%m.%Y'),
-            "amount": round(row['Сумма операции'], 2),
-            "category": row['Категория'],
-            "description": row['Описание']
-        } for _, row in top_transactions.iterrows()]
-
-        # Get external data
-        currency_rates = get_currency_rates(["USD", "EUR"])
-        stock_prices = get_stock_prices(["AAPL", "GOOGL"])
-
-        return {
-            "greeting": get_greeting(),
-            "cards": cards,
-            "top_transactions": top_transactions_list,
-            "currency_rates": currency_rates,
-            "stock_prices": stock_prices
+        # Формируем результат
+        result = {
+            "greeting": greeting,
+            "cards": cards_data,
+            "top_transactions": top_transactions,
+            "currency_rates": get_currency_rates(user_settings.get("user_currencies", [])),
+            "stock_prices": get_stock_prices(user_settings.get("user_stocks", []))
         }
 
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
     except Exception as e:
-        logger.error(f"Error in home_page: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error(f"Ошибка в main_page: {e}")
+        return json.dumps({"error": "Внутренняя ошибка сервера"}, ensure_ascii=False)
