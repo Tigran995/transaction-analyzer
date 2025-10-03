@@ -1,10 +1,10 @@
 """Главный модуль приложения."""
 import json
 import logging
-from data_loader import load_transactions
-from views import main_page
-from services import profitable_cashback_categories, simple_search
-from reports import spending_by_category
+from src.data_loader import load_transactions
+from src.views import main_page
+from src.services import profitable_cashback_categories, simple_search
+from src.reports import spending_by_category
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

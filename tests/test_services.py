@@ -6,7 +6,7 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from services import profitable_cashback_categories, simple_search
+from src.services import profitable_cashback_categories, simple_search
 
 @pytest.fixture
 def sample_transactions():
